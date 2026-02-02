@@ -1,0 +1,35 @@
+services:
+  db:
+    image: postgres:16
+    container_name: meat_erp_db
+    environment:
+      POSTGRES_USER: meat
+      POSTGRES_PASSWORD: meat
+      POSTGRES_DB: meat_erp
+    ports:
+      - "5432:5432"
+    volumes:
+      - meat_erp_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U meat -d meat_erp"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  api:
+    build:
+      context: ./apps/api
+      dockerfile: Dockerfile
+    container_name: meat_erp_api
+    env_file:
+      - .env
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./apps/api:/app
+
+volumes:
+  meat_erp_pgdata:
