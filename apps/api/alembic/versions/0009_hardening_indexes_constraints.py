@@ -24,10 +24,22 @@ def upgrade():
     )
 
     # Offline queue idempotency (client_id + client_txn_id)
-    op.create_unique_constraint(
-        "uq_offline_client_txn",
-        "offline_queue",
-        ["client_id", "client_txn_id"],
+    op.execute(
+        """
+        DO $$
+        BEGIN
+            IF NOT EXISTS (
+                SELECT 1
+                FROM pg_constraint
+                WHERE conname = 'uq_offline_client_txn'
+            ) THEN
+                ALTER TABLE offline_queue
+                ADD CONSTRAINT uq_offline_client_txn
+                UNIQUE (client_id, client_txn_id);
+            END IF;
+        END;
+        $$;
+        """
     )
 
     # Enforce positive qty on breakdown_losses at the DB layer.
@@ -39,22 +51,28 @@ def upgrade():
 
     # Helpful indexes (use IF NOT EXISTS for safe re-runs).
     op.execute(
-        "CREATE INDEX IF NOT EXISTS ix_inventory_movements_lot_moved_at ON inventory_movements (lot_id, moved_at DESC)"
+        "CREATE INDEX IF NOT EXISTS ix_inventory_movements_lot_moved_at "
+        "ON inventory_movements (lot_id, moved_at DESC)"
     )
     op.execute(
-        "CREATE INDEX IF NOT EXISTS ix_inventory_movements_lot_move_type ON inventory_movements (lot_id, move_type)"
+        "CREATE INDEX IF NOT EXISTS ix_inventory_movements_lot_move_type "
+        "ON inventory_movements (lot_id, move_type)"
     )
     op.execute(
-        "CREATE INDEX IF NOT EXISTS ix_lot_events_lot_performed_at ON lot_events (lot_id, performed_at DESC)"
+        "CREATE INDEX IF NOT EXISTS ix_lot_events_lot_performed_at "
+        "ON lot_events (lot_id, performed_at DESC)"
     )
     op.execute(
-        "CREATE INDEX IF NOT EXISTS ix_offline_queue_status_created_at ON offline_queue (status, created_at DESC)"
+        "CREATE INDEX IF NOT EXISTS ix_offline_queue_status_created_at "
+        "ON offline_queue (status, created_at DESC)"
     )
     op.execute(
-        "CREATE INDEX IF NOT EXISTS ix_reservations_lot_customer ON reservations (lot_id, customer_id)"
+        "CREATE INDEX IF NOT EXISTS ix_reservations_lot_customer "
+        "ON reservations (lot_id, customer_id)"
     )
     op.execute(
-        "CREATE INDEX IF NOT EXISTS ix_sale_lines_sale_lot ON sale_lines (sale_id, lot_id)"
+        "CREATE INDEX IF NOT EXISTS ix_sale_lines_sale_lot "
+        "ON sale_lines (sale_id, lot_id)"
     )
 
 
@@ -66,8 +84,30 @@ def downgrade():
     op.execute("DROP INDEX IF EXISTS ix_inventory_movements_lot_move_type")
     op.execute("DROP INDEX IF EXISTS ix_inventory_movements_lot_moved_at")
 
-    op.drop_constraint("ck_breakdown_loss_qty_positive", "breakdown_losses", type_="check")
-    op.drop_constraint("uq_offline_client_txn", "offline_queue", type_="unique")
+    op.drop_constraint(
+        "ck_breakdown_loss_qty_positive",
+        "breakdown_losses",
+        type_="check",
+    )
+
+    # Drop the unique constraint if it exists.
+    # (op.drop_constraint will error if missing, so guard it with a DO block.)
+    op.execute(
+        """
+        DO $$
+        BEGIN
+            IF EXISTS (
+                SELECT 1
+                FROM pg_constraint
+                WHERE conname = 'uq_offline_client_txn'
+            ) THEN
+                ALTER TABLE offline_queue
+                DROP CONSTRAINT uq_offline_client_txn;
+            END IF;
+        END;
+        $$;
+        """
+    )
 
     op.alter_column(
         "lot_events",
