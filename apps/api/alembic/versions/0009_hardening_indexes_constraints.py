@@ -42,11 +42,23 @@ def upgrade():
         """
     )
 
-    # Enforce positive qty on breakdown_losses at the DB layer.
-    op.create_check_constraint(
-        "ck_breakdown_loss_qty_positive",
-        "breakdown_losses",
-        "quantity_kg > 0",
+    # Enforce positive qty on breakdown_losses at the DB layer (idempotent).
+    op.execute(
+        """
+        DO $$
+        BEGIN
+            IF NOT EXISTS (
+                SELECT 1
+                FROM pg_constraint
+                WHERE conname = 'ck_breakdown_loss_qty_positive'
+            ) THEN
+                ALTER TABLE breakdown_losses
+                ADD CONSTRAINT ck_breakdown_loss_qty_positive
+                CHECK (quantity_kg > 0);
+            END IF;
+        END;
+        $$;
+        """
     )
 
     # Helpful indexes (use IF NOT EXISTS for safe re-runs).
@@ -84,14 +96,25 @@ def downgrade():
     op.execute("DROP INDEX IF EXISTS ix_inventory_movements_lot_move_type")
     op.execute("DROP INDEX IF EXISTS ix_inventory_movements_lot_moved_at")
 
-    op.drop_constraint(
-        "ck_breakdown_loss_qty_positive",
-        "breakdown_losses",
-        type_="check",
+    # Drop CHECK constraint if it exists.
+    op.execute(
+        """
+        DO $$
+        BEGIN
+            IF EXISTS (
+                SELECT 1
+                FROM pg_constraint
+                WHERE conname = 'ck_breakdown_loss_qty_positive'
+            ) THEN
+                ALTER TABLE breakdown_losses
+                DROP CONSTRAINT ck_breakdown_loss_qty_positive;
+            END IF;
+        END;
+        $$;
+        """
     )
 
-    # Drop the unique constraint if it exists.
-    # (op.drop_constraint will error if missing, so guard it with a DO block.)
+    # Drop UNIQUE constraint if it exists.
     op.execute(
         """
         DO $$
@@ -115,3 +138,4 @@ def downgrade():
         existing_type=sa.String(length=500),
         nullable=False,
     )
+
