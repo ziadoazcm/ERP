@@ -47,6 +47,10 @@ app.include_router(lot_events_router)
 app.include_router(loss_types_admin_router)
 app.include_router(debug_seed_router)
 
+@app.get("/")
+async def root():
+    return {"status": "ok"}
+
 @app.get("/health")
 async def health():
     return {"ok": True}
