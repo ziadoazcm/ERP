@@ -1,41 +1,70 @@
-from sqlalchemy import select, func
+from __future__ import annotations
+
+from sqlalchemy import select, func, case
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from meat_erp_core.models import InventoryMovement, Reservation
+from meat_erp_core.models import InventoryMovement
+
 
 async def available_kg(session: AsyncSession, lot_id: int) -> float:
-    result = await session.execute(
+    """
+    Compute AVAILABLE quantity (kg) for a lot from inventory_movements.
+
+    IMPORTANT:
+    - This implementation is SQLAlchemy 2.x compatible.
+    - It supports breakdown loss move types like: "breakdown_loss:DRIP" (prefix match).
+    """
+
+    # IN movements add inventory
+    in_case = case(
+        (
+            InventoryMovement.move_type.in_(
+                [
+                    "receiving",
+                    "breakdown_output",
+                    "mix_output",
+                    "adjustment_in",
+                ]
+            ),
+            InventoryMovement.quantity_kg,
+        ),
+        else_=0,
+    )
+
+    # OUT movements subtract inventory
+    out_case = case(
+        (
+            InventoryMovement.move_type.in_(
+                [
+                    "sale",
+                    "breakdown_input",
+                    "mix_input",
+                    "adjustment_out",
+                ]
+            ),
+            InventoryMovement.quantity_kg,
+        ),
+        else_=0,
+    )
+
+    # Breakdown losses are recorded as move_type="breakdown_loss:{CODE}"
+    loss_case = case(
+        (
+            InventoryMovement.move_type.like("breakdown_loss:%"),
+            InventoryMovement.quantity_kg,
+        ),
+        else_=0,
+    )
+
+    stmt = (
         select(
             func.coalesce(
-                func.sum(
-                    func.case(
-                        (InventoryMovement.to_location_id.isnot(None), InventoryMovement.quantity_kg),
-                        else_=0
-                    )
-                ) - func.sum(
-                    func.case(
-                        (InventoryMovement.from_location_id.isnot(None), InventoryMovement.quantity_kg),
-                        else_=0
-                    )
-                ),
-                0
+                func.sum(in_case - out_case - loss_case),
+                0,
             )
-        ).where(InventoryMovement.lot_id == lot_id)
+        )
+        .where(InventoryMovement.lot_id == lot_id)
     )
-    return float(result.scalar() or 0)
 
-
-async def reserved_kg(session: AsyncSession, lot_id: int) -> float:
-    """Soft allocations for restaurant/wholesale reservations."""
-    result = await session.execute(
-        select(func.coalesce(func.sum(Reservation.quantity_kg), 0)).where(Reservation.lot_id == lot_id)
-    )
-    return float(result.scalar() or 0)
-
-
-async def available_for_sale_kg(session: AsyncSession, lot_id: int) -> float:
-    """Available quantity after subtracting reservations."""
-    avail = await available_kg(session, lot_id)
-    resv = await reserved_kg(session, lot_id)
-    x = avail - resv
-    return float(x) if x > 0 else 0.0
+    res = await session.execute(stmt)
+    return float(res.scalar_one())
