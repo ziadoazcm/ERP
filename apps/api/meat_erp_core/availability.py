@@ -1,19 +1,20 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 from sqlalchemy import select, func, case
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from meat_erp_core.models import InventoryMovement, Reservation
+from meat_erp_core.models import InventoryMovement, Reservation, Lot
 
 
 async def reserved_kg(session: AsyncSession, lot_id: int) -> float:
     """
     Total reserved kg for a lot (not yet sold/consumed).
     """
-    stmt = select(
-        func.coalesce(func.sum(Reservation.quantity_kg), 0)
-    ).where(Reservation.lot_id == lot_id)
-
+    stmt = select(func.coalesce(func.sum(Reservation.quantity_kg), 0)).where(
+        Reservation.lot_id == lot_id
+    )
     res = await session.execute(stmt)
     return float(res.scalar_one())
 
@@ -22,10 +23,9 @@ async def available_kg(session: AsyncSession, lot_id: int) -> float:
     """
     Available kg for a lot = net inventory movements - reserved kg.
 
-    Notes:
-    - SQLAlchemy 2.x compatible: uses sqlalchemy.case (NOT func.case).
-    - Supports breakdown loss move types like "breakdown_loss:DRIP" (prefix match).
-    - Assumes InventoryMovement.quantity_kg is stored as positive numbers.
+    SQLAlchemy 2.x compatible: uses sqlalchemy.case (NOT func.case).
+    Supports breakdown loss move types like "breakdown_loss:DRIP" (prefix match).
+    Assumes InventoryMovement.quantity_kg stored as positive numbers.
     """
 
     # IN movements add inventory to the lot
@@ -61,7 +61,7 @@ async def available_kg(session: AsyncSession, lot_id: int) -> float:
     )
 
     # Breakdown losses subtract inventory from the INPUT lot
-    # move_type is stored like "breakdown_loss:{CODE}"
+    # move_type stored like "breakdown_loss:{CODE}"
     loss_case = case(
         (
             InventoryMovement.move_type.like("breakdown_loss:%"),
@@ -85,3 +85,32 @@ async def available_kg(session: AsyncSession, lot_id: int) -> float:
         avail = 0.0
 
     return avail
+
+
+async def available_for_sale_kg(session: AsyncSession, lot_id: int) -> float:
+    """
+    Sale-eligible available quantity for a lot.
+
+    This is a safe default implementation:
+    - Lot must be in a sale-safe state (released).
+    - If ready_at is set, selling before ready_at returns 0.
+    - Returns available_kg (already accounts for reservations).
+    """
+    lot = (
+        await session.execute(select(Lot).where(Lot.id == lot_id))
+    ).scalar_one_or_none()
+
+    if not lot:
+        return 0.0
+
+    # Enforce typical sale-safe rules
+    if getattr(lot, "state", None) != "released":
+        return 0.0
+
+    ready_at = getattr(lot, "ready_at", None)
+    if ready_at:
+        now = datetime.now(timezone.utc)
+        if now < ready_at:
+            return 0.0
+
+    return await available_kg(session, lot_id)
