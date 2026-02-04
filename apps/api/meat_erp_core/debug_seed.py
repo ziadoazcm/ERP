@@ -9,21 +9,27 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from meat_erp_core.db import get_session
 from meat_erp_core.models import (
-    Item, Supplier, Customer, Location, Lot,
-    InventoryMovement, LotEvent,
-    ProcessProfile, Reservation, LossType
+    Item,
+    Supplier,
+    Customer,
+    Location,
+    Lot,
+    ProcessProfile,
+    Reservation,
+    LossType,
 )
 
 from meat_erp_core.receiving import ReceivingRequest, create_lot_txn
 from meat_erp_core.breakdown import (
-    BreakdownRequest, BreakdownOutput, BreakdownLossIn, breakdown_txn
+    BreakdownRequest,
+    BreakdownOutput,
+    BreakdownLossIn,
+    breakdown_txn,
 )
 from meat_erp_core.mixing_api import MixRequest, MixInput, mix
 from meat_erp_core.qa_api import QACheckRequest, create_qa_check
 from meat_erp_core.sales_api import SaleCreateRequest, SaleLineIn, create_sale_txn
-from meat_erp_core.offline_api import (
-    OfflineQueueSubmitRequest, OfflineAction, submit_queue
-)
+from meat_erp_core.offline_api import OfflineQueueSubmitRequest, OfflineAction, submit_queue
 
 router = APIRouter(prefix="/debug", tags=["debug"])
 
@@ -41,14 +47,15 @@ async def seed_demo_full(session: AsyncSession = Depends(get_session)):
     - Sales
     - Offline queue
     """
-
     now = datetime.now(timezone.utc)
 
     # --------------------------------------------------
     # HARD RESET (demo DB only)
     # IMPORTANT: RESTART IDENTITY so breakdown profile = id 1
     # --------------------------------------------------
-    await session.execute(text("""
+    await session.execute(
+        text(
+            """
         TRUNCATE TABLE
           offline_conflicts,
           offline_queue,
@@ -70,7 +77,9 @@ async def seed_demo_full(session: AsyncSession = Depends(get_session)):
           locations,
           process_profiles
         RESTART IDENTITY CASCADE;
-    """))
+    """
+        )
+    )
 
     # --------------------------------------------------
     # LOCATIONS
@@ -84,23 +93,19 @@ async def seed_demo_full(session: AsyncSession = Depends(get_session)):
     # --------------------------------------------------
     # LOSS TYPES (required for breakdown)
     # --------------------------------------------------
-    session.add_all([
-        LossType(code="DRIP", name="Drip Loss", active=True, sort_order=1),
-        LossType(code="TRIM", name="Trim Loss", active=True, sort_order=2),
-    ])
+    session.add_all(
+        [
+            LossType(code="DRIP", name="Drip Loss", active=True, sort_order=1),
+            LossType(code="TRIM", name="Trim Loss", active=True, sort_order=2),
+        ]
+    )
 
     # --------------------------------------------------
     # PROCESS PROFILES
     # NOTE: breakdown_txn hardcodes process_profile_id=1
     # --------------------------------------------------
-    breakdown_profile = ProcessProfile(
-        name="Butchery Breakdown",
-        allows_lot_mixing=False
-    )
-    sausage_profile = ProcessProfile(
-        name="Sausage Mixing",
-        allows_lot_mixing=True
-    )
+    breakdown_profile = ProcessProfile(name="Butchery Breakdown", allows_lot_mixing=False)
+    sausage_profile = ProcessProfile(name="Sausage Mixing", allows_lot_mixing=True)
     session.add_all([breakdown_profile, sausage_profile])
 
     # --------------------------------------------------
@@ -116,7 +121,6 @@ async def seed_demo_full(session: AsyncSession = Depends(get_session)):
     # --------------------------------------------------
     items = [
         Item(sku="BEEF-SIDE", name="Beef Side", is_meat=True),
-
         Item(sku="BEEF-CHUCK", name="Beef Chuck", is_meat=True),
         Item(sku="BEEF-ROUND", name="Beef Round", is_meat=True),
         Item(sku="BEEF-BRISKET", name="Beef Brisket", is_meat=True),
@@ -125,11 +129,9 @@ async def seed_demo_full(session: AsyncSession = Depends(get_session)):
         Item(sku="BEEF-TENDERLOIN", name="Beef Tenderloin", is_meat=True),
         Item(sku="BEEF-SIRLOIN", name="Beef Sirloin", is_meat=True),
         Item(sku="BEEF-SHORTRIB", name="Beef Short Rib", is_meat=True),
-
         Item(sku="BEEF-TRIM-80CL", name="Beef Trim 80CL", is_meat=True),
         Item(sku="BEEF-FAT", name="Beef Fat", is_meat=True),
         Item(sku="BEEF-BONES", name="Beef Bones", is_meat=False),
-
         Item(sku="SAUSAGE", name="Beef Sausage", is_meat=True),
     ]
     session.add_all(items)
@@ -160,20 +162,20 @@ async def seed_demo_full(session: AsyncSession = Depends(get_session)):
         input_lot_id=input_lot_id,
         input_quantity_kg=180.000,
         outputs=[
-            BreakdownOutput(by_sku["BEEF-CHUCK"].id, 55.0, wip.id),
-            BreakdownOutput(by_sku["BEEF-ROUND"].id, 45.0, wip.id),
-            BreakdownOutput(by_sku["BEEF-BRISKET"].id, 9.0, wip.id),
-            BreakdownOutput(by_sku["BEEF-RIBEYE"].id, 12.0, wip.id),
-            BreakdownOutput(by_sku["BEEF-STRIPLOIN"].id, 10.0, wip.id),
-            BreakdownOutput(by_sku["BEEF-TENDERLOIN"].id, 4.0, wip.id),
-            BreakdownOutput(by_sku["BEEF-SIRLOIN"].id, 11.0, wip.id),
-            BreakdownOutput(by_sku["BEEF-SHORTRIB"].id, 10.0, wip.id),
-            BreakdownOutput(by_sku["BEEF-TRIM-80CL"].id, 18.0, wip.id),
-            BreakdownOutput(by_sku["BEEF-FAT"].id, 4.0, wip.id),
-            BreakdownOutput(by_sku["BEEF-BONES"].id, 1.5, wip.id),
+            BreakdownOutput(item_id=by_sku["BEEF-CHUCK"].id, quantity_kg=55.000, to_location_id=wip.id),
+            BreakdownOutput(item_id=by_sku["BEEF-ROUND"].id, quantity_kg=45.000, to_location_id=wip.id),
+            BreakdownOutput(item_id=by_sku["BEEF-BRISKET"].id, quantity_kg=9.000, to_location_id=wip.id),
+            BreakdownOutput(item_id=by_sku["BEEF-RIBEYE"].id, quantity_kg=12.000, to_location_id=wip.id),
+            BreakdownOutput(item_id=by_sku["BEEF-STRIPLOIN"].id, quantity_kg=10.000, to_location_id=wip.id),
+            BreakdownOutput(item_id=by_sku["BEEF-TENDERLOIN"].id, quantity_kg=4.000, to_location_id=wip.id),
+            BreakdownOutput(item_id=by_sku["BEEF-SIRLOIN"].id, quantity_kg=11.000, to_location_id=wip.id),
+            BreakdownOutput(item_id=by_sku["BEEF-SHORTRIB"].id, quantity_kg=10.000, to_location_id=wip.id),
+            BreakdownOutput(item_id=by_sku["BEEF-TRIM-80CL"].id, quantity_kg=18.000, to_location_id=wip.id),
+            BreakdownOutput(item_id=by_sku["BEEF-FAT"].id, quantity_kg=4.000, to_location_id=wip.id),
+            BreakdownOutput(item_id=by_sku["BEEF-BONES"].id, quantity_kg=1.500, to_location_id=wip.id),
         ],
         losses=[
-            BreakdownLossIn(loss_type="DRIP", quantity_kg=0.5, notes="Demo drip loss")
+            BreakdownLossIn(loss_type="DRIP", quantity_kg=0.500, notes="Demo drip loss")
         ],
         notes="Demo whole-beef breakdown",
         performed_at=now - timedelta(days=1),
@@ -194,7 +196,7 @@ async def seed_demo_full(session: AsyncSession = Depends(get_session)):
     round_ = lot_by_sku("BEEF-ROUND")
 
     # --------------------------------------------------
-    # RELEASE SOME LOTS
+    # RELEASE SOME LOTS (needed for sales/mixing)
     # --------------------------------------------------
     for lot in [ribeye, trim, round_]:
         lot.state = "released"
@@ -203,9 +205,9 @@ async def seed_demo_full(session: AsyncSession = Depends(get_session)):
         lot.current_location_id = finished.id
 
     # --------------------------------------------------
-    # AGING LOT
+    # AGING LOT (for aging screens)
     # --------------------------------------------------
-    aging_lot = next(l for l in out_lots if l not in {ribeye, trim, round_})
+    aging_lot = next(l for l in out_lots if l.id not in {ribeye.id, trim.id, round_.id})
     aging_lot.state = "aging"
     aging_lot.aging_started_at = now - timedelta(days=1)
     aging_lot.ready_at = now + timedelta(days=10)
@@ -221,7 +223,7 @@ async def seed_demo_full(session: AsyncSession = Depends(get_session)):
         ReceivingRequest(
             item_id=by_sku["BEEF-TRIM-80CL"].id,
             supplier_id=supplier.id,
-            quantity_kg=30.0,
+            quantity_kg=30.000,
             to_location_id=finished.id,
             notes="Trim for sausage",
             received_at=now - timedelta(days=3),
@@ -242,8 +244,8 @@ async def seed_demo_full(session: AsyncSession = Depends(get_session)):
         MixRequest(
             process_profile_id=sausage_profile.id,
             inputs=[
-                MixInput(trim.id, 10.0),
-                MixInput(trim2.id, 10.0),
+                MixInput(lot_id=trim.id, quantity_kg=10.000),
+                MixInput(lot_id=trim2.id, quantity_kg=10.000),
             ],
             output_item_id=by_sku["SAUSAGE"].id,
             output_location_id=finished.id,
@@ -286,8 +288,8 @@ async def seed_demo_full(session: AsyncSession = Depends(get_session)):
             lot_id=sausage_lot_id,
             check_type="Metal Detect",
             mode="partial",
-            pass_qty_kg=18.0,
-            fail_qty_kg=2.0,
+            pass_qty_kg=18.000,
+            fail_qty_kg=2.000,
             notes="Partial split",
             performed_at=now - timedelta(hours=2),
         ),
@@ -301,7 +303,7 @@ async def seed_demo_full(session: AsyncSession = Depends(get_session)):
         Reservation(
             lot_id=ribeye.id,
             customer_id=cust_restaurant.id,
-            quantity_kg=5.0,
+            quantity_kg=5.000,
             reserved_at=now - timedelta(hours=3),
         )
     )
@@ -313,7 +315,9 @@ async def seed_demo_full(session: AsyncSession = Depends(get_session)):
         SaleCreateRequest(
             customer_id=cust_retail.id,
             sold_at=now - timedelta(minutes=30),
-            lines=[SaleLineIn(lot_id=ribeye.id, quantity_kg=3.0)],
+            lines=[
+                SaleLineIn(lot_id=ribeye.id, quantity_kg=3.000),
+            ],
             notes="Demo sale",
         ),
         session=session,
@@ -334,7 +338,7 @@ async def seed_demo_full(session: AsyncSession = Depends(get_session)):
                     payload={
                         "item_id": by_sku["BEEF-SIDE"].id,
                         "supplier_id": supplier.id,
-                        "quantity_kg": 25.0,
+                        "quantity_kg": 25.000,
                         "to_location_id": raw.id,
                         "notes": "Offline receiving",
                     },
@@ -344,9 +348,7 @@ async def seed_demo_full(session: AsyncSession = Depends(get_session)):
                     action_type="sale",
                     payload={
                         "customer_id": cust_restaurant.id,
-                        "lines": [
-                            {"lot_id": ribeye.id, "quantity_kg": 1.0}
-                        ],
+                        "lines": [{"lot_id": ribeye.id, "quantity_kg": 1.000}],
                         "notes": "Offline sale",
                     },
                 ),
@@ -367,4 +369,3 @@ async def seed_demo_full(session: AsyncSession = Depends(get_session)):
             "sale_id": sale.sale_id,
         },
     }
-
